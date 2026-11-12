@@ -1,0 +1,28 @@
+# Private setup: no public mail ports or webmail.
+name: sovereign-mail
+services:
+  stalwart:
+    image: ${STALWART_IMAGE:-stalwartlabs/stalwart:v1}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 90s
+    environment:
+      STALWART_PUBLIC_URL: https://${MX_HOST:-mx.example.com}
+      TOKIO_WORKER_THREADS: '1'
+    ports:
+    - 127.0.0.1:8080:8080
+    volumes:
+    - ./state/etc:/etc/stalwart
+    - ./state/mail:/var/lib/stalwart
+    networks:
+    - mail
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    mem_limit: 256m
+    memswap_limit: 768m
+networks:
+  mail:
+    driver: bridge

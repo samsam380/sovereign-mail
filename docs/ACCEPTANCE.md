@@ -1,0 +1,27 @@
+# Live acceptance checks
+
+These checks are **pending** until performed on the actual server. A passing code test suite is not evidence that mail reaches Gmail.
+
+1. **Configuration and listeners.** `docker compose config --quiet` and `docker compose ps` succeed. Test that 8080 is inaccessible from an independent external host while the SSH tunnel works. Gateway 8787 must not be publicly published. Review Docker and Lightsail firewall behavior. Ensure recovery/bootstrap mode is not active behind the public proxy.
+2. **DNS.** Public A records match the actual static public IP; PTR returns `mx.example.com`; that name resolves back to the IP. Confirm MX and actual DKIM selector via authoritative and independent recursive resolvers. Remove stale IPv6 records or verify their path. There is one SPF policy, and DMARC reports go to a real mailbox.
+3. **Certificates.** The website has valid HTTPS. Separately verify the engine's SMTP and IMAP certificates; Caddy's certificate says nothing about these. Run certificate checks without `-k` or any verification bypass:
+
+   ```bash
+   openssl s_client -connect mx.example.com:465 -servername mx.example.com -verify_return_error -verify_hostname mx.example.com </dev/null
+   openssl s_client -connect mx.example.com:993 -servername mx.example.com -verify_return_error -verify_hostname mx.example.com </dev/null
+   openssl s_client -starttls smtp -connect mx.example.com:25 -servername mx.example.com -verify_return_error -verify_hostname mx.example.com </dev/null
+   ```
+
+4. **Port 25.** Use the Stalwart delivery diagnostics to test outbound DNS and a destination MX connection. Separately verify inbound 25 from an external network. An open inbound port does not prove AWS removed the outbound restriction. SMTP 465 accepts authenticated clients; it cannot replace port 25 for arbitrary server-to-server delivery.
+5. **Accounts.** A wrong password is denied and throttled. Correct mailbox app-password login works. After enrolling an authenticator, verify that password entry alone leaves the mailbox locked. Complete login with an authenticator code and test that a recovery code works once. An ordinary account cannot use administrative operations. Logging out invalidates the gateway cookie; restarting the gateway invalidates all sessions.
+6. **Mailbox workflows.** Read a message and verify its seen flag from a second IMAP client. Star, unstar, archive, mark unread, spam, restore-to-inbox, trash and permanent-delete a designated disposable message. Save, reopen and edit a draft. Search across more than 50 messages and test pagination. Confirm live data persists through container recreation without removing `state/`.
+7. **Compose and submission.** Send a controlled message with To, Cc, Bcc, a Unicode subject and attachment. Verify the Bcc recipient is not disclosed in the delivered headers seen by To/Cc recipients. Confirm a copy in Sent and removal of draft status. Stop the submission endpoint during a test and verify the UI retains the draft and does not auto-retry an uncertain send. “Queued” does not mean “delivered”; inspect the engine's queue and bounces.
+8. **External delivery.** Send one message to your own Gmail/Outlook mailbox and reply. Inspect original headers for SPF, DKIM and DMARC **pass with domain alignment**. Check inbox versus spam placement. Review delivery errors and rate limits. Only the user or an authorized operator sends these test messages; no automatic test script sends them.
+9. **No open relay.** From an unauthenticated external SMTP client on port 25, try RCPT TO for an external recipient with an external MAIL FROM. It must reject unauthorized relaying before any message is sent. Inbound messages to an existing local mailbox should still be accepted. Do not enable unauthenticated submission or arbitrary catch-all relaying.
+10. **Untrusted mail.** Send a disposable test email containing HTML scripts, remote images and hostile markup in the display name/subject. Confirm it renders as text, makes no remote-content request, and cannot execute code. Confirm HTML attachments download rather than render inside webmail.
+11. **Proxy client IP.** A failed login from one IP must not ban Caddy or every gateway user. Verify the actual address in engine diagnostics with a second client/network. HTTP forwarding settings must not change SMTP/IMAP's directly observed peer address.
+12. **Capacity and restart.** Watch `docker stats`, free disk, OOM events and queue growth while uploading files, searching and receiving mail. Reboot the actual host and verify mail and web services recover.
+13. **Backup and recovery.** Perform a real encrypted backup to the backup server, inspect the snapshot, run `restic check`, restore to an empty directory and start the recovered installation in isolation. Verify mailbox messages, attachment bytes, identities, signing keys and configuration. Lose neither the restic password nor the recovery instructions.
+14. **Certificate renewal.** Check both ACME clients' configurations and successful challenge reachability. Confirm Stalwart renews the certificate served on 465/993, not only the website certificate. Avoid repeatedly forcing production ACME orders and triggering rate limits.
+
+Keep this document as a pass/fail record with timestamps and evidence on your own server. Do not paste credentials, private messages or full authentication logs into public issues.

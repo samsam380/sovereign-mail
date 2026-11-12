@@ -1,0 +1,42 @@
+# Shared-host layout: An existing service keeps public TCP 80; this service owns TCP 443.
+# All listed hostnames must be DNS-only in Cloudflare and resolve to this host.
+{
+    email {$ACME_EMAIL}
+    admin off
+    auto_https disable_redirects
+}
+(https443) {
+    tls {
+        issuer acme {
+            dir https://acme-v02.api.letsencrypt.org/directory
+            disable_http_challenge
+        }
+    }
+}
+{$WEB_HOST} {
+    import https443
+    encode zstd gzip
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        -Server
+    }
+    request_body {
+        max_size 12MB
+    }
+    reverse_proxy webmail:8787
+}
+{$MX_HOST}, autoconfig.{$MAIL_DOMAIN}, autodiscover.{$MAIL_DOMAIN}, mta-sts.{$MAIL_DOMAIN}, ua-auto-config.{$MAIL_DOMAIN} {
+    import https443
+    encode zstd gzip
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        -Server
+    }
+    reverse_proxy stalwart:8080
+}
+# Caddy certificates use TLS-ALPN-01 on 443. Stalwart's separate SMTP/IMAP
+# certificates use DNS-01 in this layout. No HTTP fallback.

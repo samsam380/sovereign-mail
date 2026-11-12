@@ -1,0 +1,93 @@
+# Small-host trial after private setup and tuning. Verify capacity before MX cutover.
+name: sovereign-mail
+services:
+  stalwart:
+    image: ${STALWART_IMAGE:-stalwartlabs/stalwart:v1}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 90s
+    environment:
+      STALWART_PUBLIC_URL: https://${MX_HOST:-mx.example.com}
+      TOKIO_WORKER_THREADS: '1'
+    ports:
+    - '25:25'
+    - 465:465
+    - 993:993
+    - 127.0.0.1:8080:8080
+    volumes:
+    - ./state/etc:/etc/stalwart
+    - ./state/mail:/var/lib/stalwart
+    networks:
+    - mail
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    mem_limit: 256m
+    memswap_limit: 768m
+  webmail:
+    build: ./app
+    init: true
+    restart: unless-stopped
+    depends_on:
+    - stalwart
+    environment:
+      PUBLIC_ORIGIN: https://${WEB_HOST:-mail.example.com}
+      MAIL_DOMAIN: ${MAIL_DOMAIN:-example.com}
+      JMAP_ORIGIN: http://stalwart:8080
+      TRUST_PROXY: '1'
+      MFA_STATE_DIR: /var/lib/sovereign-mail
+      MAX_WORKERS: '2'
+    expose:
+    - '8787'
+    read_only: true
+    volumes:
+      - ./state/webmail:/var/lib/sovereign-mail
+    tmpfs:
+    - /tmp:size=8m,mode=1777
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    networks:
+    - mail
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '2'
+    mem_limit: 64m
+    memswap_limit: 192m
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    init: true
+    restart: unless-stopped
+    depends_on:
+    - webmail
+    environment:
+      WEB_HOST: ${WEB_HOST:-mail.example.com}
+      MX_HOST: ${MX_HOST:-mx.example.com}
+      MAIL_DOMAIN: ${MAIL_DOMAIN:-example.com}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL to an EXISTING reachable external mailbox
+        in .env}
+    ports:
+    - 443:443
+    volumes:
+    - ./deploy/Caddyfile.https-only:/etc/caddy/Caddyfile:ro
+    - ./state/caddy/data:/data
+    - ./state/caddy/config:/config
+    networks:
+    - mail
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '2'
+    security_opt:
+    - no-new-privileges:true
+    mem_limit: 64m
+    memswap_limit: 192m
+networks:
+  mail:
+    driver: bridge

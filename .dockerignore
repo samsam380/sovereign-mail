@@ -1,0 +1,5 @@
+state
+.env
+backup.env
+.git
+__pycache__

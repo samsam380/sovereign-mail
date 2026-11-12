@@ -1,0 +1,61 @@
+name: sovereign-mail
+services:
+  stalwart:
+    image: ${STALWART_IMAGE:-stalwartlabs/stalwart:v1}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 90s
+    environment:
+      STALWART_PUBLIC_URL: https://${MX_HOST:-mx.example.com}
+    ports:
+      - "25:25"
+      - "465:465"
+      - "993:993"
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./state/etc:/etc/stalwart
+      - ./state/mail:/var/lib/stalwart
+    networks: [mail]
+    logging: {driver: json-file, options: {max-size: 10m, max-file: '3'}}
+    # Keep the official non-root image's NET_BIND_SERVICE file capability.
+  webmail:
+    build: ./app
+    init: true
+    restart: unless-stopped
+    depends_on: [stalwart]
+    environment:
+      PUBLIC_ORIGIN: https://${WEB_HOST:-mail.example.com}
+      MAIL_DOMAIN: ${MAIL_DOMAIN:-example.com}
+      JMAP_ORIGIN: http://stalwart:8080
+      TRUST_PROXY: '1'
+      MFA_STATE_DIR: /var/lib/sovereign-mail
+    expose: ['8787']
+    read_only: true
+    volumes:
+      - ./state/webmail:/var/lib/sovereign-mail
+    tmpfs: ['/tmp:size=8m,mode=1777']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [mail]
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '2'}}
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    init: true
+    restart: unless-stopped
+    depends_on: [webmail]
+    environment:
+      WEB_HOST: ${WEB_HOST:-mail.example.com}
+      MX_HOST: ${MX_HOST:-mx.example.com}
+      MAIL_DOMAIN: ${MAIL_DOMAIN:-example.com}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL to an EXISTING reachable external mailbox in .env}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./state/caddy/data:/data
+      - ./state/caddy/config:/config
+    networks: [mail]
+    logging: {driver: json-file, options: {max-size: 5m, max-file: '2'}}
+    security_opt: [no-new-privileges:true]
+networks:
+  mail:
+    driver: bridge

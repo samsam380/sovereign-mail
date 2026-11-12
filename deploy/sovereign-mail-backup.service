@@ -1,0 +1,14 @@
+[Unit]
+Description=Consistent encrypted Sovereign Mail backup
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/sovereign-mail-compose.env
+WorkingDirectory=/opt/sovereign-mail
+ExecStart=/opt/sovereign-mail/scripts/backup.sh
+TimeoutStartSec=2h
+UMask=0077
+Nice=10
